@@ -1,0 +1,41 @@
+# ── 密钥与本地配置（绝不入库）──────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+
+# ── Python / FastAPI ───────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── Node / Vite ───────────────────────────────────────────
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+pnpm-debug.log*
+
+# ── 运行时产物与编辑器 ────────────────────────────────────
+*.log
+logs/
+data/
+tmp/
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db

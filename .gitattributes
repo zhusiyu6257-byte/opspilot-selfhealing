@@ -1,0 +1,20 @@
+# Windows + WSL 混合开发：仓库内统一 LF，避免同一文件被两端反复改写
+* text=auto eol=lf
+
+# 二进制资源禁止换行符转换，否则会被 text=auto 误判并损坏
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.pdf   binary
+*.woff  binary
+*.woff2 binary
+*.zip   binary
+*.gz    binary
+
+# PowerShell / 批处理脚本由 Windows 解释器执行，必须保持 CRLF
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
