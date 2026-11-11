@@ -17,5 +17,5 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,
 )
 
-# 直接导入任务模块，完成任务注册
 import app.tasks.ops
+import app.tasks.runbook
