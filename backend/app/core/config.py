@@ -41,6 +41,18 @@ class Settings(BaseSettings):
     # 免密密钥登录不受影响。生产应由密钥管理服务注入，绝不提交到仓库。
     SSH_CREDENTIAL_KEY: str = ""
 
+    # ── 邮件通知（可选）────────────────────────────────────────────
+    # 默认关闭。只有配齐 SMTP_USER / SMTP_PASSWORD / NOTIFICATION_EMAIL_TO
+    # 才会真正发信；缺任一项就静默跳过，不影响自愈主链路。
+    # 授权码属于凭据，只能放 .env（已被 gitignore 排除），绝不写进代码或配置仓库。
+    NOTIFICATION_EMAIL_ENABLED: bool = False
+    SMTP_HOST: str = "smtp.qq.com"
+    SMTP_PORT: int = 465
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    # 收件人，多个用逗号分隔
+    NOTIFICATION_EMAIL_TO: str = ""
+
     @model_validator(mode="after")
     def _reject_insecure_flags_in_production(self) -> "Settings":
         """生产环境禁止两处"图省事"开关，启动即失败（fail closed）。

@@ -151,6 +151,8 @@ async def handle_alertmanager_webhook(
                     # Worker，API 侧无需解出明文，队列里也不会出现明文。
                     "password_envelope": asset.ssh_password_encrypted or "",
                     "trigger_source": "ALERT_WEBHOOK",
+                    # 告警名随任务带到 Worker，用于结果通知的标题与分类
+                    "alert_name": alert_name,
                 },
                 task_id=task_id,
             )

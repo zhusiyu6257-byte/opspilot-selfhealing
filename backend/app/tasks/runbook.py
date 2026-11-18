@@ -1,3 +1,4 @@
+import logging
 import time
 from datetime import datetime
 from sqlalchemy import create_engine
@@ -6,9 +7,12 @@ from sqlalchemy.orm import sessionmaker
 from app.core.celery_app import celery_app
 from app.core.config import settings
 from app.core.credential_vault import CredentialVaultError, decrypt_secret
+from app.core.notification import send_heal_result_email
 from app.core.ssh_client import execute_remote_command
 from app.models.asset import Asset
 from app.models.execution import TaskExecution
+
+logger = logging.getLogger(__name__)
 
 # 兼容读取数据库连接串，并转为 psycopg2/同步驱动
 raw_uri = str(
@@ -47,6 +51,7 @@ def execute_command_task(
     password_envelope: str | None = None,
     trigger_source: str = "MANUAL",
     password: str | None = None,
+    alert_name: str = "ManualCommand",
 ) -> dict:
     """异步执行远程 Shell 指令，并将生命周期与输出结果写入 task_executions 审计表"""
     task_id = self.request.id
@@ -108,6 +113,25 @@ def execute_command_task(
                     bool(result.get("success")), result.get("exit_code"), asset.status
                 )
         db.commit()
+
+    # 4. 发结果通知（可选，附加服务）。
+    # 只给告警自愈发，手动执行命令不发，避免人工调试时邮箱被刷屏。
+    # 重中之重：整个发信过程用 try/except 兜住——自愈已经成功落库，
+    # 就算 SMTP 挂了/授权码错了，也绝不能让这个任务变成 FAILED。
+    # "修好了但没通知到"是小的可用性问题；"报失败但其实修好了"是错误的事实。
+    if trigger_source == "ALERT_WEBHOOK":
+        try:
+            send_heal_result_email(
+                alert_name=alert_name,
+                host=hostname,
+                command=command,
+                status=final_status,
+                stdout=result.get("stdout") or "",
+                stderr=result.get("stderr") or "",
+                task_id=task_id,
+            )
+        except Exception as exc:
+            logger.warning("自愈结果邮件发送失败（不影响自愈结果） | task=%s | err=%s", task_id, exc)
 
     return {
         **result,
