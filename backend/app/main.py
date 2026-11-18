@@ -4,6 +4,9 @@ from app.api.v1.health import router as health_router
 from app.api.v1.assets import router as assets_router
 from app.api.v1.tasks import router as tasks_router
 from app.api.v1.runbooks import router as runbooks_router
+from app.api.v1.executions import router as executions_router
+from app.api.v1.alerts import router as alerts_router
+from app.api.v1.metrics import router as metrics_router
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -16,3 +19,6 @@ app.include_router(health_router, prefix=settings.API_V1_STR)
 app.include_router(assets_router, prefix=settings.API_V1_STR)
 app.include_router(tasks_router, prefix=settings.API_V1_STR)
 app.include_router(runbooks_router, prefix=settings.API_V1_STR)
+app.include_router(executions_router, prefix=settings.API_V1_STR)
+app.include_router(alerts_router, prefix=settings.API_V1_STR)
+app.include_router(metrics_router, prefix=settings.API_V1_STR)

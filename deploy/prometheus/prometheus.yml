@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["opspilot-alertmanager:9093"]
+
+rule_files:
+  - /etc/prometheus/rules.yml
+
+scrape_configs:
+  - job_name: opspilot-backend
+    scheme: https
+    metrics_path: /api/v1/metrics/host
+    # 本地自签证书没有可信 CA 链，容器内暂时跳过校验。
+    # 生产环境必须删除这段，并把证书换成可信 CA 签发的。
+    tls_config:
+      insecure_skip_verify: true
+    static_configs:
+      - targets: ["host.docker.internal:8000"]

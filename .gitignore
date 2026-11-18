@@ -7,6 +7,8 @@
 *.p12
 *.pfx
 secrets/
+deploy/certs/
+.run/
 
 # ── Python / FastAPI ───────────────────────────────────────
 __pycache__/

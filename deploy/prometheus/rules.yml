@@ -1,0 +1,16 @@
+groups:
+  - name: opspilot-demo-selfheal
+    rules:
+      # 指标来自后端 /api/v1/metrics/host 读取的 /proc/loadavg，是真实数值。
+      # 阈值设成 > 0 是为了本地稳定演示整条自愈链路；
+      # 真实生产请按容量基线改阈值，并加 for 持续时间抑制抖动。
+      - alert: CpuUsageHigh
+        expr: opspilot_host_load1 > 0
+        for: 0s
+        labels:
+          severity: warning
+          ip: "127.0.0.1"
+          case: prometheus-live
+        annotations:
+          summary: "OpsPilot 宿主机出现负载"
+          description: "Prometheus 从后端指标接口读到 load1={{ $value }}，触发默认巡检剧本"

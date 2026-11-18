@@ -1,0 +1,31 @@
+# Alertmanager 接入 OpsPilot 自愈 Webhook 的最小配置片段。
+# 用法：把 route / receivers 合并进现有 alertmanager.yml，token 文件不要入库。
+#
+# 为什么用 credentials_file 而不是直接写 credentials：
+#   yml 常被提交进仓库、被配置中心或 ps 采集；密钥放独立只读文件后，
+#   轮换时只需替换文件，不用改配置、不用重启 Alertmanager 的配置版本。
+#   文件内容就是 ALERT_WEBHOOK_TOKEN 的值（单行、无换行）。
+#
+# 本地联调把 url 换成 http://127.0.0.1:8000/api/v1/alerts/webhook；
+# 生产必须 HTTPS —— Bearer Token 明文过公网等于没有鉴权。
+
+route:
+  receiver: opspilot-webhook
+  group_by: ["alertname", "instance"]
+  group_wait: 30s
+  group_interval: 5m
+  # repeat_interval 决定同一条告警被重复推送的频率。后端有「冷却时间」
+  # 兜底：ALERT_HEAL_COOLDOWN_SECONDS 秒内同一条告警只自愈一次，
+  # 所以这里调小也只是多收到几次"已跳过"的回复，不会反复远程执行命令。
+  # 想让长期未恢复的告警再试一次，把这里设得比冷却时间长即可。
+  repeat_interval: 1h
+
+receivers:
+  - name: opspilot-webhook
+    webhook_configs:
+      - url: https://opspilot.internal/api/v1/alerts/webhook
+        send_resolved: false # 后端只处理 firing，resolved 会被跳过
+        http_config:
+          authorization:
+            type: Bearer
+            credentials_file: /etc/alertmanager/secrets/opspilot_token
