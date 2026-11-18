@@ -4,15 +4,15 @@ services:
     container_name: opspilot-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: opspilot_db
-      POSTGRES_USER: opspilot_user
-      POSTGRES_PASSWORD: opspilot_password
+      POSTGRES_DB: ${POSTGRES_DB:-opspilot_db}
+      POSTGRES_USER: ${POSTGRES_USER:-opspilot_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opspilot_password}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - opspilot_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U opspilot_user -d opspilot_db"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opspilot_user} -d ${POSTGRES_DB:-opspilot_db}"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -25,7 +25,7 @@ services:
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - opspilot_redisdata:/data
     healthcheck:
@@ -41,38 +41,52 @@ services:
     container_name: opspilot-prometheus
     restart: unless-stopped
     ports:
-      - "9090:9090"
+      - "${PROMETHEUS_PORT:-9090}:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./prometheus/rules.yml:/etc/prometheus/rules.yml:ro
+      # 本地 CA 根证书挂进去，用于校验后端证书（只读）。
+      - ./certs/ca.crt:/etc/opspilot/ca.crt:ro
+      # 数据卷：重启后告警历史、TSDB 不丢。
+      - opspilot_promdata:/prometheus
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
       - opspilot-net
-    depends_on:
-      - opspilot-redis
 
   opspilot-alertmanager:
     image: prom/alertmanager:v0.28.1
     container_name: opspilot-alertmanager
     restart: unless-stopped
-    # 以宿主机本地用户身份运行，才能读取 mode 600 的 Token 文件
+    # Docker Secret 文件在 compose（非 swarm）模式下 owner 为 1000、mode 600。
+    # 镜像默认以 nobody(65534) 运行会读不到，故显式用 1000 运行以匹配 Secret。
+    # 这是 Secret 机制的要求，不是"读宿主文件"的 hack；Token 本身不进 yml。
     user: "1000:1000"
     ports:
-      - "9093:9093"
+      - "${ALERTMANAGER_PORT:-9093}:9093"
     volumes:
       - ./alertmanager.dev.yml:/etc/alertmanager/alertmanager.yml:ro
-      - ./secrets:/etc/alertmanager/secrets:ro
+      # 本地 CA 根证书挂进去，用于校验后端证书（只读）。
+      - ./certs/ca.crt:/etc/opspilot/ca.crt:ro
+      # 数据卷：重启后静默规则、通知状态不丢。
+      - opspilot_amdata:/alertmanager
+    secrets:
+      # Docker Secret 以只读文件挂到 /run/secrets/opspilot_token。
+      - opspilot_token
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
       - opspilot-net
-    depends_on:
-      - opspilot-prometheus
+
+secrets:
+  opspilot_token:
+    file: ./secrets/opspilot_token
 
 volumes:
   opspilot_pgdata:
   opspilot_redisdata:
+  opspilot_promdata:
+  opspilot_amdata:
 
 networks:
   opspilot-net:

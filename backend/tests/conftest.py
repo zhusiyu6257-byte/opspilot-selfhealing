@@ -13,4 +13,6 @@ from cryptography.fernet import Fernet
 os.environ["SSH_CREDENTIAL_KEY"] = Fernet.generate_key().decode()
 os.environ["ALERT_WEBHOOK_TOKEN"] = "unit-test-token"
 os.environ["ALERT_HEAL_COOLDOWN_SECONDS"] = "600"
-os.environ["ENVIRONMENT"] = "test"
+# ENVIRONMENT 现在收敛为 development/staging/production 三个枚举值，
+# 单测用 development 语义（逃生舱测试会再单独 monkeypatch）。
+os.environ["ENVIRONMENT"] = "development"

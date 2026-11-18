@@ -27,14 +27,15 @@ echo "$HTTPS_MODE" > "$MODE_FILE"
 is_running() { pgrep -f "$1" >/dev/null 2>&1; }
 
 if [ "$HTTPS_MODE" = "1" ]; then
-  if [ ! -f "$CERT_DIR/dev.crt" ] || [ ! -f "$CERT_DIR/dev.key" ]; then
-    bash "$ROOT/scripts/generate-dev-cert.sh"
+  if [ ! -f "$CERT_DIR/dev.crt" ] || [ ! -f "$CERT_DIR/dev.key" ] || [ ! -f "$CERT_DIR/ca.crt" ]; then
+    bash "$ROOT/scripts/generate-dev-ca.sh"
   fi
-  CURL_FLAGS="-kfsS"
+  # 后端证书现在由本地 CA 签发；curl 用 --cacert 走真正校验，不再用 -k。
+  CURL_FLAGS="--cacert $CERT_DIR/ca.crt -fsS"
   API_SCHEME="https"
   FRONT_SCHEME="https"
   SSL_ARGS="--ssl-keyfile $CERT_DIR/dev.key --ssl-certfile $CERT_DIR/dev.crt"
-  echo "[info] 模式：HTTPS（本地自签证书，浏览器会提示需手动信任）"
+  echo "[info] 模式：HTTPS（本地 CA 签发证书，浏览器需导入 ca.crt 才不告警）"
 else
   CURL_FLAGS="-fsS"
   API_SCHEME="http"

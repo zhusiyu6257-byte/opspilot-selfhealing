@@ -59,7 +59,7 @@ bash scripts/sync-alertmanager-token.sh
 bash scripts/start-dev.sh
 ```
 
-默认 HTTP 模式访问 `http://localhost:5173`。需要 HTTPS 时用 `OPSPILOT_HTTPS=1 bash scripts/start-dev.sh`（自签证书，浏览器需手动信任）。脚本会记住上次模式，重复执行是幂等的。
+默认 HTTP 模式访问 `http://localhost:5173`。需要 HTTPS 时用 `OPSPILOT_HTTPS=1 bash scripts/start-dev.sh`：首次会自动建本地私有 CA 并由它签发后端证书（`scripts/generate-dev-ca.sh`）。服务端之间（Prometheus/Alertmanager 到后端）用 `ca.crt` 做**真正校验**，不再跳过；浏览器仍会提示不受信任，把 `deploy/certs/ca.crt` 导入系统/浏览器信任根即可消除。脚本会记住上次模式，重复执行是幂等的。
 
 ### 4. 验证自愈闭环
 
@@ -77,7 +77,7 @@ curl -s http://localhost:9093/api/v2/alerts
 
 ```bash
 cd backend
-python -m pytest tests/ -q      # 51 个单测，无外部依赖
+python -m pytest tests/ -q      # 56 个单测，无外部依赖
 ```
 
 覆盖：命令护栏（含各类绕过变形）、凭据加密往返与篡改检测、Webhook 鉴权 401/503 语义、冷却去重互斥与降级、审计"先落库再派发"编排。CI 里同时跑前端 `npm run build`。
@@ -118,7 +118,8 @@ flowchart TB
 尚未完成（按优先级）：
 
 - **P0 已完成**：代码提交、单测与 CI、本文档。
-- **P1 生产化**：告警阈值 `>0` 改真实基线并加 `for`；去掉两处 `insecure_skip_verify`；自签证书换可信 CA；Token 换 Secret 管理；关闭 `ALERT_WEBHOOK_ALLOW_INSECURE`；统一 `.env.example` 与 compose 的账号密码；给 Prometheus/Alertmanager 挂数据卷。
+- **P1 生产化（已完成）**：本地私有 CA 签发证书，服务端之间去掉 `insecure_skip_verify` 改真正校验；Token 走 Docker Secret；生产环境启动即拒绝不安全开关（配置校验 + 单测）；统一 `.env.example` 与 compose 账号密码；Prometheus/Alertmanager 挂数据卷；告警规则分成演示版 `rules.yml` 与生产模板 `rules.prod.yml.example`。
+  - 仍需在真实部署时做：把本地 CA 换成可信 CA 证书、按基线调整生产规则阈值、导入 CA 根证书到浏览器消除告警。
 - **P2 功能补全**：补齐 `DiskUsageHigh`/`ServiceDown` 的告警规则；资产状态回写；资产编辑/删除；审计详情与统计；任务超时/重试/回滚；通知渠道（钉钉/邮件）。
 - **P3 运维增强**：Dockerfile 与生产编排；平台自监控（队列积压、失败率、API 延迟）；启动脚本残留进程清理。
 
@@ -137,4 +138,4 @@ lab/         预留实验目录
 
 ## 安全提醒
 
-本地演示用了自签证书、`insecure_skip_verify`、阈值 `>0` 等"图省事"设定，**仅限开发机**。上生产前请逐条清理 P1 清单。
+本地仍用了私有 CA（非可信 CA）、演示阈值 `>0` 等"图省事"设定，**仅限开发机**。服务端之间的证书校验已是真正的校验（非跳过）。上生产前请按 `rules.prod.yml.example` 调整阈值，并把本地 CA 换成可信 CA 证书。

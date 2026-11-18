@@ -14,9 +14,10 @@ scrape_configs:
   - job_name: opspilot-backend
     scheme: https
     metrics_path: /api/v1/metrics/host
-    # 本地自签证书没有可信 CA 链，容器内暂时跳过校验。
-    # 生产环境必须删除这段，并把证书换成可信 CA 签发的。
+    # 后端证书由本地私有 CA 签发，容器挂载 ca.crt 做真正的服务端身份校验。
+    # 不再使用 insecure_skip_verify。生产环境把 ca.crt 换成可信 CA 证书包即可，
+    # 这里的结构不用改。
     tls_config:
-      insecure_skip_verify: true
+      ca_file: /etc/opspilot/ca.crt
     static_configs:
       - targets: ["host.docker.internal:8000"]

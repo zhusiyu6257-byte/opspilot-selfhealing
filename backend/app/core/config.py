@@ -1,9 +1,15 @@
-from pydantic import computed_field
+from typing import Literal
+
+from pydantic import computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
 class Settings(BaseSettings):
     PROJECT_NAME: str = "OpsPilot"
     API_V1_STR: str = "/api/v1"
-    ENVIRONMENT: str = "development"
+    # 用 Literal 收敛取值：写成 "production" 这类拼写错误会在启动就报错，
+    # 而不是悄悄当成非 development，让「仅开发环境可用」的开关在生产生效。
+    ENVIRONMENT: Literal["development", "staging", "production"] = "development"
 
     # PostgreSQL 配置
     POSTGRES_SERVER: str = "localhost"
@@ -34,6 +40,27 @@ class Settings(BaseSettings):
     # SSH 密码的对称加密主钥匙。留空 = 明确拒绝保存/传递密码（fail closed），
     # 免密密钥登录不受影响。生产应由密钥管理服务注入，绝不提交到仓库。
     SSH_CREDENTIAL_KEY: str = ""
+
+    @model_validator(mode="after")
+    def _reject_insecure_flags_in_production(self) -> "Settings":
+        """生产环境禁止两处"图省事"开关，启动即失败（fail closed）。
+
+        大白话：开发时为了方便，可以关掉 SSH 指纹核对、可以让 Webhook 不验 Token。
+        这些开关一旦被带进生产，等于把大门敞开。与其靠人记住别开，不如让配置自己
+          在启动时拒绝——配错了就起不来，比上线后出事好。
+        """
+        if self.ENVIRONMENT == "production":
+            if self.ALERT_WEBHOOK_ALLOW_INSECURE:
+                raise ValueError(
+                    "production 环境禁止 ALERT_WEBHOOK_ALLOW_INSECURE=true："
+                    "Webhook 必须校验 Bearer Token"
+                )
+            if not self.SSH_STRICT_HOST_KEY_CHECKING:
+                raise ValueError(
+                    "production 环境禁止 SSH_STRICT_HOST_KEY_CHECKING=false："
+                    "必须严格核对 SSH 主机指纹"
+                )
+        return self
 
     @computed_field
     @property

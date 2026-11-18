@@ -18,7 +18,9 @@ receivers:
         http_config:
           authorization:
             type: Bearer
-            credentials_file: /etc/alertmanager/secrets/opspilot_token
-          # 本地自签证书专用；生产必须删除并改用可信 CA。
+            # Token 走 Docker Secret，只挂载不进配置仓库。
+            credentials_file: /run/secrets/opspilot_token
+          # 后端证书由本地私有 CA 签发，容器挂载 ca.crt 做真正的校验。
+          # 不再使用 insecure_skip_verify。
           tls_config:
-            insecure_skip_verify: true
+            ca_file: /etc/opspilot/ca.crt

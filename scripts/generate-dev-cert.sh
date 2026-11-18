@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# 生成仅用于本地开发的自签名证书。
-# 自签 = 自己给自己发证，浏览器会提示「不受信任」，这是正常的；
+# 【已废弃】此脚本生成的是自签证书，仅保留供历史参考。
+# 现在请改用 scripts/generate-dev-ca.sh：它先建本地私有 CA，再用 CA 签发后端证书，
+# 使 Prometheus/Alertmanager 可以做真正的证书校验而不用 insecure_skip_verify。
 # 生产环境必须使用受信任 CA（Let's Encrypt / 企业内网 CA）签发的证书。
 set -euo pipefail
 

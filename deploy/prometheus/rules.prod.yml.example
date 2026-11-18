@@ -1,0 +1,43 @@
+# 生产告警规则模板 —— 按容量基线调整后再用。
+# 用法：复制为 rules.yml并改阈值；示例值仅示意，不是通用标准。
+#
+# 与演示版 rules.yml 的关键区别：
+#   1. 阈值是"真的"：负载 > 4 意味着持续高负载，而不是 > 0 那样一有动静就报。
+#   2. 加了 for：条件要连续满足 5 分钟才触发，抑制抖动导致的误报。
+#   3. 标签对齐 alertmanager.yml.example，用 instance 而非写死 ip。
+#      后端 Webhook 会优先读 ip，没有则从 instance 冒号前截取主机。
+
+groups:
+  - name: opspilot-production
+    interval: 30s
+    rules:
+      - alert: CpuUsageHigh
+        # 示例：1 分钟负载均值超过 4，且持续 5 分钟。
+        # 实际阈值请按机器核数与业务基线压测后确定。
+        expr: opspilot_host_load1 > 4
+        for: 5m
+        labels:
+          severity: warning
+          instance: "127.0.0.1:8000"
+        annotations:
+          summary: "主机负载持续偏高"
+          description: "load1 已达 {{ $value }}，超过基线 4 并持续 5 分钟"
+
+      # 下面两条规则需要后端指标接口补充对应指标后才会生效。
+      # 当前 /metrics/host 只暴露 load1 与 uptime，故先注释保留占位。
+      # - alert: DiskUsageHigh
+      #   expr: opspilot_host_disk_used_percent > 85
+      #   for: 10m
+      #   labels:
+      #     severity: warning
+      #     instance: "127.0.0.1:8000"
+      #   annotations:
+      #     summary: "磁盘使用率过高"
+      # - alert: ServiceDown
+      #   expr: up{job="opspilot-backend"} == 0
+      #   for: 2m
+      #   labels:
+      #     severity: critical
+      #     instance: "127.0.0.1:8000"
+      #   annotations:
+      #     summary: "后端服务不可达"
