@@ -1,9 +1,10 @@
 groups:
   - name: opspilot-demo-selfheal
     rules:
-      # 指标来自后端 /api/v1/metrics/host 读取的 /proc/loadavg，是真实数值。
-      # 阈值设成 > 0 是为了本地稳定演示整条自愈链路；
-      # 真实生产请按容量基线改阈值，并加 for 持续时间抑制抖动。
+      # 指标来自后端 /api/v1/metrics/host，都是真实读取宿主机得到的值。
+      # CpuUsageHigh 阈值设成 > 0 是为了本地稳定演示整条自愈链路；
+      # 另两条用真实阈值，正常情况不会触发，可用于验证"多规则共存"而不刷屏。
+      # 生产请改用 rules.prod.yml.example 的基线阈值。
       - alert: CpuUsageHigh
         expr: opspilot_host_load1 > 0
         for: 0s
@@ -14,3 +15,29 @@ groups:
         annotations:
           summary: "OpsPilot 宿主机出现负载"
           description: "Prometheus 从后端指标接口读到 load1={{ $value }}，触发默认巡检剧本"
+
+      # 磁盘告警：根分区使用率超过 85% 且持续 2 分钟。
+      # 对应剧本 DiskUsageHigh（清理 /tmp 临时文件）。
+      - alert: DiskUsageHigh
+        expr: opspilot_host_disk_used_percent > 85
+        for: 2m
+        labels:
+          severity: warning
+          ip: "127.0.0.1"
+          case: disk-live
+        annotations:
+          summary: "根分区使用率过高"
+          description: "磁盘使用率 {{ $value }}%，持续 2 分钟，触发临时文件清理剧本"
+
+      # 服务存活告警：SSH 端口连不上且持续 1 分钟。
+      # 对应剧本 ServiceDown（尝试重启 ssh 服务）。
+      - alert: ServiceDown
+        expr: opspilot_host_service_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          ip: "127.0.0.1"
+          case: service-live
+        annotations:
+          summary: "主机 SSH 服务不可达"
+          description: "SSH 端口连续 1 分钟不可连，触发服务重启剧本"

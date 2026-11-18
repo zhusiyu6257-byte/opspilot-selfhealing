@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Plus,
   Refresh,
@@ -17,14 +17,20 @@ import {
   Lock,
   Close,
   MagicStick,
+  Edit,
+  DataAnalysis,
 } from '@element-plus/icons-vue'
 import {
   getAssets,
   createAsset,
+  updateAsset,
+  deleteAsset,
   dispatchPing,
   getTaskStatus,
   executeCommand,
   getExecutions,
+  getExecutionStats,
+  getExecutionDetail,
   getHealth,
 } from '@/api.js'
 
@@ -256,17 +262,20 @@ const refreshing = ref(false)
 const assetsError = ref('')
 const executionsError = ref('')
 
-// 指标
+// 指标：优先用后端聚合接口（口径统一、不受列表 limit 截断影响），
+// 后端没返回时回退到前端从列表计算，保证老后端也能用。
+const execStats = ref(null)
 const onlineCount = computed(() => assets.value.filter((a) => a.status === 'online').length)
-const offlineCount = computed(() => assets.value.filter((a) => a.status === 'offline').length)
+const offlineCount = computed(() => assets.value.filter((a) => a.status === 'unreachable' || a.status === 'offline').length)
 // 指标口径：REJECTED 是「被拦在门口、从未执行」的请求，不算执行任务，
 // 也不进成功率分母 —— 否则故意刷一批危险命令就能把成功率打下来。
 const dispatchedExecs = computed(() => executions.value.filter((e) => e.status !== 'REJECTED'))
-const todayCount = computed(() => dispatchedExecs.value.filter((e) => isToday(e.created_at)).length)
+const todayCount = computed(() => execStats.value?.today_count ?? dispatchedExecs.value.filter((e) => isToday(e.created_at)).length)
 const successCount = computed(
-  () => dispatchedExecs.value.filter((e) => String(e.status).toUpperCase() === 'SUCCESS').length,
+  () => execStats.value?.success_count ?? dispatchedExecs.value.filter((e) => String(e.status).toUpperCase() === 'SUCCESS').length,
 )
 const successRate = computed(() => {
+  if (execStats.value) return execStats.value.success_rate
   if (!dispatchedExecs.value.length) return null
   return Math.round((successCount.value / dispatchedExecs.value.length) * 100)
 })
@@ -286,8 +295,10 @@ const assetMap = computed(() => new Map(assets.value.map((a) => [a.id, a])))
 const pingJobs = reactive({})
 const pingPollers = new Map()
 
-// 录入表单
+// 录入/编辑表单（同一个对话框复用：有 editingAssetId 就是编辑）
 const createDialogVisible = ref(false)
+const editingAssetId = ref(null)
+const editingAsset = computed(() => assets.value.find((a) => a.id === editingAssetId.value) || null)
 const submitting = ref(false)
 const formError = ref('')
 const formRef = ref()
@@ -455,6 +466,12 @@ async function refreshExecutions({ silent = false } = {}) {
     const data = unwrap(await getExecutions({ limit: 100 }))
     executions.value = (Array.isArray(data) ? data : []).map(normalizeExecution)
     executionsError.value = ''
+    // 统计口径由后端统一，独立于列表 limit
+    try {
+      execStats.value = unwrap(await getExecutionStats())
+    } catch {
+      execStats.value = null // 后端没有该接口时回退前端计算
+    }
   } catch (err) {
     executionsError.value = errorText(err)
     if (!silent) notifyError('审计日志加载失败', err)
@@ -479,11 +496,38 @@ watch(createDialogVisible, (open) => {
   if (open) {
     formError.value = ''
     nextTick(() => formRef.value?.clearValidate())
+  } else {
+    // 取消/关闭时清掉编辑态，避免下次点"新增"误带入编辑 ID
+    editingAssetId.value = null
   }
 })
 
 function resetForm() {
   Object.assign(form, INITIAL_FORM)
+  editingAssetId.value = null
+  nextTick(() => formRef.value?.clearValidate())
+}
+
+// 打开新增对话框
+function openCreate() {
+  resetForm()
+  createDialogVisible.value = true
+}
+
+// 打开编辑对话框：把已有资产的值灌进表单。
+// 密码框留空 = 保持原密码（后端按三态语义处理），不回填密文。
+function openEdit(asset) {
+  editingAssetId.value = asset.id
+  Object.assign(form, {
+    name: asset.name,
+    ip_address: asset.ip_address,
+    os_type: asset.os_type,
+    ssh_port: asset.ssh_port,
+    ssh_user: asset.ssh_user,
+    ssh_password: '',
+  })
+  formError.value = ''
+  createDialogVisible.value = true
   nextTick(() => formRef.value?.clearValidate())
 }
 
@@ -495,24 +539,50 @@ async function handleCreate() {
     return
   }
   submitting.value = true
+  const payload = {
+    name: form.name.trim(),
+    ip_address: form.ip_address.trim(),
+    os_type: form.os_type,
+    ssh_port: Number(form.ssh_port),
+    ssh_user: form.ssh_user.trim(),
+    ssh_password: form.ssh_password.trim() || undefined,
+  }
   try {
-    await createAsset({
-      name: form.name.trim(),
-      ip_address: form.ip_address.trim(),
-      os_type: form.os_type,
-      ssh_port: Number(form.ssh_port),
-      ssh_user: form.ssh_user.trim(),
-      ssh_password: form.ssh_password.trim() || undefined,
-    })
-    ElMessage.success(`主机 ${form.name} 已纳入资产台账`)
+    if (editingAssetId.value) {
+      await updateAsset(editingAssetId.value, payload)
+      ElMessage.success(`主机 ${form.name} 已更新`)
+    } else {
+      await createAsset(payload)
+      ElMessage.success(`主机 ${form.name} 已纳入资产台账`)
+    }
     createDialogVisible.value = false
     resetForm()
     await refreshAssets({ silent: true })
   } catch (err) {
     formError.value = errorText(err)
-    notifyError('录入失败', err)
+    notifyError(editingAssetId.value ? '更新失败' : '录入失败', err)
   } finally {
     submitting.value = false
+  }
+}
+
+async function handleDelete(asset) {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除主机「${asset.name}」？关联的审计记录会保留，只是不再关联该主机。`,
+      '删除资产',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消' },
+    )
+  } catch {
+    return
+  }
+  try {
+    await deleteAsset(asset.id)
+    ElMessage.success(`主机 ${asset.name} 已删除`)
+    if (selectedAssetId.value === asset.id) selectedAssetId.value = null
+    await refreshAssets({ silent: true })
+  } catch (err) {
+    notifyError('删除失败', err)
   }
 }
 
@@ -766,9 +836,16 @@ async function handleExecute() {
 /* ==========================================================================
    审计日志抽屉
    ========================================================================== */
-function handleViewLog(row) {
+async function handleViewLog(row) {
+  // 先用列表行秒开抽屉，再异步拉详情补全最新全文（长输出在列表里可能被截断）。
   currentExecution.value = row
   drawerVisible.value = true
+  try {
+    const detail = unwrap(await getExecutionDetail(row.task_id))
+    currentExecution.value = normalizeExecution(detail)
+  } catch {
+    // 详情接口不可用时保留列表行，抽屉照样能看，不打断操作。
+  }
 }
 
 // 状态与条数为前端本地筛选，不触发额外请求；指标大盘始终基于全量快照
@@ -813,7 +890,7 @@ onBeforeUnmount(() => {
             {{ healthMeta.label }}
           </span>
           <el-button :icon="Refresh" :loading="refreshing" @click="refreshAll">刷新全盘</el-button>
-          <el-button type="primary" :icon="Plus" @click="createDialogVisible = true">
+          <el-button type="primary" :icon="Plus" @click="openCreate()">
             + 录入主机
           </el-button>
         </div>
@@ -896,7 +973,12 @@ onBeforeUnmount(() => {
                 >
                   <el-table-column label="主机名" min-width="150">
                     <template #default="{ row }">
-                      <div class="cy-host-name">{{ row.name }}</div>
+                      <div class="cy-host-name">
+                        {{ row.name }}
+                        <el-tooltip v-if="row.has_stored_password" content="已加密保存 SSH 密码" placement="top">
+                          <el-icon class="cy-host-lock"><Lock /></el-icon>
+                        </el-tooltip>
+                      </div>
                       <div class="cy-host-id">#{{ row.id }} · {{ row.os_type }}</div>
                     </template>
                   </el-table-column>
@@ -933,7 +1015,7 @@ onBeforeUnmount(() => {
                       <div v-else class="cy-hint">未探测</div>
                     </template>
                   </el-table-column>
-                  <el-table-column label="操作" width="200">
+                  <el-table-column label="操作" width="290">
                     <template #default="{ row }">
                       <div class="cy-actions">
                         <el-button
@@ -947,12 +1029,22 @@ onBeforeUnmount(() => {
                         <el-button size="small" :icon="CaretRight" @click="handleQuickCommand(row)">
                           下发命令
                         </el-button>
+                        <el-button size="small" :icon="Edit" @click="openEdit(row)">编辑</el-button>
+                        <el-button
+                          size="small"
+                          type="danger"
+                          plain
+                          :icon="Delete"
+                          @click="handleDelete(row)"
+                        >
+                          删除
+                        </el-button>
                       </div>
                     </template>
                   </el-table-column>
                   <template #empty>
                     <el-empty description="暂无纳管主机" :image-size="70">
-                      <el-button type="primary" size="small" @click="createDialogVisible = true">
+                      <el-button type="primary" size="small" @click="openCreate()">
                         录入第一台主机
                       </el-button>
                     </el-empty>
@@ -1254,8 +1346,10 @@ onBeforeUnmount(() => {
         <div class="cy-dialog__head">
           <div class="cy-dialog__icon"><el-icon :size="18"><Monitor /></el-icon></div>
           <div>
-            <div class="cy-dialog__title">录入新主机资产</div>
-            <div class="cy-mono cy-dialog__sub">POST /api/v1/assets</div>
+            <div class="cy-dialog__title">{{ editingAssetId ? '编辑主机资产' : '录入新主机资产' }}</div>
+            <div class="cy-mono cy-dialog__sub">
+              {{ editingAssetId ? `PUT /api/v1/assets/${editingAssetId}` : 'POST /api/v1/assets' }}
+            </div>
           </div>
         </div>
       </template>
@@ -1288,17 +1382,22 @@ onBeforeUnmount(() => {
           <el-form-item label="SSH 用户" prop="ssh_user">
             <el-input v-model="form.ssh_user" placeholder="root" clearable />
           </el-form-item>
-          <el-form-item label="SSH 密码（可选）">
+          <el-form-item :label="editingAssetId ? 'SSH 密码（留空=不改动）' : 'SSH 密码（可选）'">
             <el-input
               v-model="form.ssh_password"
               type="password"
               show-password
               clearable
-              placeholder="留空则使用已配置的免密密钥"
+              :placeholder="editingAssetId
+                ? (editingAsset?.has_stored_password ? '已存密码；留空保持不变，清空请点右侧×' : '留空则使用免密密钥')
+                : '留空则使用已配置的免密密钥'"
             />
           </el-form-item>
-          <el-form-item label="初始状态">
-            <el-input model-value="待探测 (unknown)" disabled />
+          <el-form-item :label="editingAssetId ? '当前状态' : '初始状态'">
+            <el-input
+              :model-value="editingAssetId ? (editingAsset?.status || 'unknown') : '待探测 (unknown)'"
+              disabled
+            />
           </el-form-item>
         </div>
 
@@ -1319,7 +1418,7 @@ onBeforeUnmount(() => {
       <template #footer>
         <el-button @click="createDialogVisible = false">取消</el-button>
         <el-button type="primary" :loading="submitting" @click="handleCreate">
-          {{ submitting ? '正在录入…' : '确认录入' }}
+          {{ submitting ? (editingAssetId ? '正在更新…' : '正在录入…') : (editingAssetId ? '保存修改' : '确认录入') }}
         </el-button>
       </template>
     </el-dialog>
@@ -2020,6 +2119,13 @@ html.dark .el-overlay {
   font-size: 12.5px;
   font-weight: 600;
   color: #e8f4ee;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cy-host-lock {
+  color: #63e6a6;
+  font-size: 12px;
 }
 
 .cy-host-id {

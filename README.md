@@ -77,7 +77,7 @@ curl -s http://localhost:9093/api/v2/alerts
 
 ```bash
 cd backend
-python -m pytest tests/ -q      # 56 个单测，无外部依赖
+python -m pytest tests/ -q      # 74 个单测，无外部依赖
 ```
 
 覆盖：命令护栏（含各类绕过变形）、凭据加密往返与篡改检测、Webhook 鉴权 401/503 语义、冷却去重互斥与降级、审计"先落库再派发"编排。CI 里同时跑前端 `npm run build`。
@@ -120,7 +120,12 @@ flowchart TB
 - **P0 已完成**：代码提交、单测与 CI、本文档。
 - **P1 生产化（已完成）**：本地私有 CA 签发证书，服务端之间去掉 `insecure_skip_verify` 改真正校验；Token 走 Docker Secret；生产环境启动即拒绝不安全开关（配置校验 + 单测）；统一 `.env.example` 与 compose 账号密码；Prometheus/Alertmanager 挂数据卷；告警规则分成演示版 `rules.yml` 与生产模板 `rules.prod.yml.example`。
   - 仍需在真实部署时做：把本地 CA 换成可信 CA 证书、按基线调整生产规则阈值、导入 CA 根证书到浏览器消除告警。
-- **P2 功能补全**：补齐 `DiskUsageHigh`/`ServiceDown` 的告警规则；资产状态回写；资产编辑/删除；审计详情与统计；任务超时/重试/回滚；通知渠道（钉钉/邮件）。
+- **P2 功能补全（已完成主体）**：
+  - 指标接口新增磁盘使用率、SSH 服务存活；`DiskUsageHigh`/`ServiceDown` 规则已激活（3 条规则共存，后两条用真实阈值、正常不触发）。
+  - 资产状态回写：自愈成功 → `online`，连不上 → `unreachable`，命令本身失败保持原状态（不误判为宕机）。
+  - 资产编辑/删除 API + 前端接入；密码三态（不传=保持、空串=清空、非空=加密替换），删除资产不丢审计。
+  - 审计统计 API（成功率剔除 REJECTED）+ 按任务号详情接口，前端指标卡改用后端口径、审计抽屉打开时拉全文。
+  - 尚未做：任务超时/重试/回滚、通知渠道（钉钉/邮件）。
 - **P3 运维增强**：Dockerfile 与生产编排；平台自监控（队列积压、失败率、API 延迟）；启动脚本残留进程清理。
 
 > 注：身份认证 / 登录 / RBAC 按项目约定不做。

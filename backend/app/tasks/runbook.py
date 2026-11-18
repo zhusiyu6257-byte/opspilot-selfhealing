@@ -7,6 +7,7 @@ from app.core.celery_app import celery_app
 from app.core.config import settings
 from app.core.credential_vault import CredentialVaultError, decrypt_secret
 from app.core.ssh_client import execute_remote_command
+from app.models.asset import Asset
 from app.models.execution import TaskExecution
 
 # 兼容读取数据库连接串，并转为 psycopg2/同步驱动
@@ -19,6 +20,20 @@ sync_db_uri = raw_uri.replace("+asyncpg", "")
 
 engine = create_engine(sync_db_uri, pool_pre_ping=True)
 SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
+
+
+def derive_asset_status(success: bool, exit_code: int | None, current: str) -> str:
+    """根据一次执行结果推导资产新状态（纯函数，便于测试）。
+
+    - 成功            -> online
+    - exit_code == -1 -> unreachable（连接层就没连上）
+    - 其他失败        -> 保持原状态（主机通，只是命令没跑成）
+    """
+    if success:
+        return "online"
+    if exit_code == -1:
+        return "unreachable"
+    return current
 
 
 @celery_app.task(name="tasks.execute_command", bind=True)
@@ -67,7 +82,14 @@ def execute_command_task(
         )
     duration_ms = round((time.time() - start_time) * 1000, 2)
 
-    # 3. 回写最终执行审计结果
+    # 3. 回写最终执行审计结果 + 资产状态
+    # 大白话：医生看完病，除了写病历（审计），还要更新病人档案上的"当前状态"。
+    # 区分三种情况：
+    #   - 命令执行成功           -> online（主机活着且能登录）
+    #   - 连不上（exit_code=-1） -> unreachable（主机可能宕机/网络断了/密码错）
+    #   - 命令本身失败（非0）    -> 不改状态（主机能登录，只是这条命令没跑成，
+    #                              比如磁盘清理剧本里 rm 了不存在的文件）
+    # 不把"命令失败"当成"主机挂了"，避免误判导致资产状态乱跳。
     final_status = "SUCCESS" if result.get("success") else "FAILED"
     with SessionLocal() as db:
         execution = db.query(TaskExecution).filter(TaskExecution.task_id == task_id).first()
@@ -78,7 +100,14 @@ def execute_command_task(
             execution.stderr = result.get("stderr")
             execution.duration_ms = duration_ms
             execution.finished_at = datetime.utcnow()
-            db.commit()
+
+        if asset_id:
+            asset = db.query(Asset).filter(Asset.id == asset_id).first()
+            if asset:
+                asset.status = derive_asset_status(
+                    bool(result.get("success")), result.get("exit_code"), asset.status
+                )
+        db.commit()
 
     return {
         **result,

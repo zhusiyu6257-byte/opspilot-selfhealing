@@ -19,6 +19,26 @@ class AssetCreate(AssetBase):
     )
 
 
+class AssetUpdate(BaseModel):
+    """编辑资产：字段全部可选，只更新传进来的字段。
+
+    密码语义：
+      - 不传 / None：保持原密码不变
+      - 传空串 ""：清空已存密码，改回免密密钥登录
+      - 传非空串：加密后替换原密码
+    """
+
+    name: str | None = Field(None, max_length=64)
+    ip_address: str | None = Field(None, max_length=45)
+    os_type: str | None = Field(None, max_length=32)
+    status: str | None = Field(None, max_length=32)
+    ssh_port: int | None = Field(None, ge=1, le=65535)
+    ssh_user: str | None = Field(None, max_length=32)
+    ssh_password: str | None = Field(
+        None, description="不传=保持原密码；空串=清空密码；非空=加密替换"
+    )
+
+
 class AssetResponse(AssetBase):
     id: int
     created_at: datetime
