@@ -32,6 +32,10 @@ import {
   getExecutionStats,
   getExecutionDetail,
   getHealth,
+  getPromTargets,
+  getPromRules,
+  getPromAlerts,
+  getPromMetric,
 } from '@/api.js'
 
 /* ==========================================================================
@@ -389,6 +393,69 @@ const execLimit = ref(50)
 const drawerVisible = ref(false)
 const currentExecution = ref(null)
 
+// Prometheus 监控
+const promTargets = ref([])
+const promRules = ref([])
+const promAlerts = ref([])
+const promMetrics = ref([])
+const promLoading = ref(false)
+const promError = ref('')
+const promLastUpdated = ref('')
+
+function flattenPromTargets(data) {
+  const active = data?.data?.activeTargets || []
+  return active.map((t) => ({
+    job: t.labels?.job || '—',
+    instance: t.labels?.instance || t.scrapeUrl || '—',
+    health: t.health || 'unknown',
+    error: t.lastError || '',
+  }))
+}
+
+function flattenPromRules(data) {
+  const groups = data?.data?.groups || []
+  return groups.flatMap((g) =>
+    (g.rules || []).map((r) => ({
+      name: r.name,
+      state: r.state,
+      condition: r.query || '',
+      alertCount: (r.alerts || []).length,
+      severity: r.labels?.severity || '—',
+    })),
+  )
+}
+
+async function refreshPrometheus({ silent = false } = {}) {
+  promLoading.value = true
+  try {
+    // 三个接口独立拉取：一个失败不影响其它区块展示
+    const [targetsRes, rulesRes, alertsRes] = await Promise.allSettled([
+      getPromTargets(), getPromRules(), getPromAlerts(),
+    ])
+    promTargets.value = targetsRes.status === 'fulfilled' ? flattenPromTargets(targetsRes.value.data) : []
+    promRules.value = rulesRes.status === 'fulfilled' ? flattenPromRules(rulesRes.value.data) : []
+    promAlerts.value = alertsRes.status === 'fulfilled' ? (alertsRes.value.data?.data?.alerts || []) : []
+
+    // 指标快照：用 query 接口取最新值
+    const metricQueries = ['opspilot_host_load1', 'opspilot_host_disk_used_percent', 'opspilot_host_service_up']
+    const results = await Promise.allSettled(metricQueries.map((q) => getPromMetric(q)))
+    promMetrics.value = results.map((res, i) => ({
+      name: metricQueries[i],
+      value: res.status === 'fulfilled'
+        ? (res.value.data?.data?.result?.[0]?.value?.[1] ?? '—')
+        : '—',
+    }))
+
+    const anyFailed = [targetsRes, rulesRes, alertsRes].some((r) => r.status === 'rejected')
+    promError.value = anyFailed ? '部分 Prometheus 接口不可用（下方仅展示已获取的数据）' : ''
+    promLastUpdated.value = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+  } catch (err) {
+    if (!silent) promError.value = errorText(err)
+  } finally {
+    promLoading.value = false
+  }
+}
+
 const executionRows = computed(() =>
   executions.value
     .filter((e) => !execStatusFilter.value || e.status === execStatusFilter.value)
@@ -483,11 +550,16 @@ async function refreshExecutions({ silent = false } = {}) {
 async function refreshAll() {
   refreshing.value = true
   try {
-    await Promise.all([refreshAssets(), refreshExecutions(), refreshHealth()])
+    await Promise.all([refreshAssets(), refreshExecutions(), refreshHealth(), refreshPrometheus({ silent: true })])
   } finally {
     refreshing.value = false
   }
 }
+
+// 切到监控 tab 时刷新一次，保证看到的是最新数据
+watch(activeTab, (tab) => {
+  if (tab === 'monitor') refreshPrometheus({ silent: true })
+})
 
 /* ==========================================================================
    录入主机
@@ -1322,6 +1394,131 @@ onBeforeUnmount(() => {
                 <span>共 <b>{{ executionRows.length }}</b> 条记录</span>
                 <span class="cy-hint">终端执行完成后会自动刷新此列表</span>
               </div>
+            </div>
+          </section>
+        </el-tab-pane>
+
+        <!-- ---------- Tab 3: Prometheus 监控 ---------- -->
+        <el-tab-pane name="monitor">
+          <template #label>
+            <span class="cy-tab-label"><el-icon><DataAnalysis /></el-icon> Prometheus 监控</span>
+          </template>
+
+          <div class="cy-card__head" style="margin-bottom: 12px">
+            <div>
+              <div class="cy-card__title">监控与告警规则</div>
+              <div class="cy-card__sub">Prometheus :9090 · GET /api/v1/targets · /rules · /alerts</div>
+            </div>
+            <div class="cy-head-actions">
+              <span v-if="promLastUpdated" class="cy-hint">更新于 {{ promLastUpdated }}</span>
+              <el-button size="small" :icon="Refresh" :loading="promLoading" @click="refreshPrometheus()">
+                刷新
+              </el-button>
+            </div>
+          </div>
+
+          <el-alert v-if="promError" type="warning" show-icon :closable="false" class="cy-alert">
+            <template #title>{{ promError }}</template>
+          </el-alert>
+
+          <!-- 指标快照 -->
+          <div class="cy-metric-grid" style="margin-bottom: 16px">
+            <div v-for="m in promMetrics" :key="m.name" class="cy-metric">
+              <div class="cy-metric__label">{{ m.name }}</div>
+              <div class="cy-metric__value">{{ m.value }}</div>
+              <div class="cy-metric__glow" />
+            </div>
+          </div>
+
+          <div class="cy-grid">
+            <!-- 抓取目标 -->
+            <section class="cy-card">
+              <div class="cy-card__head">
+                <div>
+                  <div class="cy-card__title">抓取目标 (Targets)</div>
+                  <div class="cy-card__sub">Prometheus 每 5 秒拉取后端 /metrics/host</div>
+                </div>
+              </div>
+              <div class="cy-card__body">
+                <el-table :data="promTargets" v-loading="promLoading" style="width: 100%" size="small">
+                  <el-table-column prop="job" label="任务" min-width="120" />
+                  <el-table-column prop="instance" label="实例" min-width="160">
+                    <template #default="{ row }"><span class="cy-mono">{{ row.instance }}</span></template>
+                  </el-table-column>
+                  <el-table-column label="状态" width="90">
+                    <template #default="{ row }">
+                      <span class="cy-tag" :class="row.health === 'up' ? 'cy-tag--success' : 'cy-tag--danger'">
+                        {{ row.health }}
+                      </span>
+                    </template>
+                  </el-table-column>
+                  <template #empty><el-empty description="暂无抓取目标" :image-size="50" /></template>
+                </el-table>
+              </div>
+            </section>
+
+            <!-- 告警规则 -->
+            <section class="cy-card">
+              <div class="cy-card__head">
+                <div>
+                  <div class="cy-card__title">告警规则 (Rules)</div>
+                  <div class="cy-card__sub">触发后经 Alertmanager 推送 Webhook 自愈</div>
+                </div>
+              </div>
+              <div class="cy-card__body">
+                <el-table :data="promRules" v-loading="promLoading" style="width: 100%" size="small">
+                  <el-table-column prop="name" label="规则" min-width="120" />
+                  <el-table-column prop="condition" label="表达式" min-width="150">
+                    <template #default="{ row }"><span class="cy-mono">{{ row.condition }}</span></template>
+                  </el-table-column>
+                  <el-table-column label="状态" width="90">
+                    <template #default="{ row }">
+                      <span class="cy-tag" :class="row.state === 'firing' ? 'cy-tag--danger' : 'cy-tag--success'">
+                        {{ row.state }}
+                      </span>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="severity" label="级别" width="90" />
+                  <template #empty><el-empty description="暂无告警规则" :image-size="50" /></template>
+                </el-table>
+              </div>
+            </section>
+          </div>
+
+          <!-- 当前告警 -->
+          <section class="cy-card" style="margin-top: 16px">
+            <div class="cy-card__head">
+              <div>
+                <div class="cy-card__title">当前活跃告警 (Alerts)</div>
+                <div class="cy-card__sub">firing 状态的告警会触发对应自愈剧本</div>
+              </div>
+              <span class="cy-tag" :class="promAlerts.length ? 'cy-tag--warn' : 'cy-tag--success'">
+                {{ promAlerts.length }} 条
+              </span>
+            </div>
+            <div class="cy-card__body">
+              <el-table :data="promAlerts" v-loading="promLoading" style="width: 100%" size="small">
+                <el-table-column label="告警名" min-width="130">
+                  <template #default="{ row }">{{ row.labels?.alertname || '—' }}</template>
+                </el-table-column>
+                <el-table-column label="目标 IP" min-width="120">
+                  <template #default="{ row }"><span class="cy-mono">{{ row.labels?.ip || '—' }}</span></template>
+                </el-table-column>
+                <el-table-column label="级别" width="90">
+                  <template #default="{ row }">{{ row.labels?.severity || '—' }}</template>
+                </el-table-column>
+                <el-table-column label="状态" width="90">
+                  <template #default="{ row }">
+                    <span class="cy-tag" :class="row.state === 'active' ? 'cy-tag--danger' : 'cy-tag--success'">
+                      {{ row.state }}
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="开始时间" min-width="170">
+                  <template #default="{ row }"><span class="cy-mono">{{ row.startsAt || '—' }}</span></template>
+                </el-table-column>
+                <template #empty><el-empty description="当前无活跃告警（系统健康）" :image-size="50" /></template>
+              </el-table>
             </div>
           </section>
         </el-tab-pane>

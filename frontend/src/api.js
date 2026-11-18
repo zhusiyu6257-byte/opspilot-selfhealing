@@ -29,4 +29,11 @@ export const getExecutionDetail = (taskId) => api.get(`/executions/by-task/${tas
 // 后端与依赖组件健康状态
 export const getHealth = () => api.get('/healthz')
 
+// Prometheus 监控（经 Vite 代理到 9090，同源无跨域）
+const promApi = axios.create({ baseURL: '/prometheus', timeout: 10000 })
+export const getPromTargets = () => promApi.get('/api/v1/targets')
+export const getPromRules = () => promApi.get('/api/v1/rules')
+export const getPromAlerts = () => promApi.get('/api/v1/alerts')
+export const getPromMetric = (query) => promApi.get('/api/v1/query', { params: { query } })
+
 export default api

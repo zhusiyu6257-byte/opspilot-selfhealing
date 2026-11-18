@@ -52,6 +52,13 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
           secure: false,
         },
+        // Prometheus 是独立 HTTP 服务，前端同源调 /prometheus/* 由 dev server 转发，
+        // 避免浏览器跨域限制。生产应改用后端反向代理或网关统一暴露。
+        '/prometheus': {
+          target: process.env.VITE_PROMETHEUS_TARGET || 'http://127.0.0.1:9090',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/prometheus/, ''),
+        },
       },
     },
   }
