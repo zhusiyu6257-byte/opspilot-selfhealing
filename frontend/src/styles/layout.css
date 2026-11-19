@@ -1,0 +1,67 @@
+/* S1 新布局的统一设计变量（--op-* 单一来源）。
+ *
+ * 为什么不改旧的 main.css / console-v2.css：
+ *   旧控制台（App.vue）和孤儿组件仍依赖 --cy-* / --v2-* / Element 变量，
+ *   本阶段改动它们会破坏已验收的 V1 功能。新布局只用这一套 --op-*，
+ *   等 S2 把真实页面迁移过来时，再逐页替换旧变量、最终收敛为一套。
+ *
+ * 视觉方向：专业 SRE 控制台，深色、克制、信息密度高、无大面积渐变。
+ */
+:root {
+  --op-sidebar-w: 232px;
+  --op-sidebar-w-collapsed: 64px;
+  --op-topbar-h: 56px;
+  --op-transition: 180ms;
+
+  --op-bg: #080d12;
+  --op-panel: #0d141b;
+  --op-panel-2: #131c24;
+  --op-line: #1c2b2b;
+  --op-line-strong: #2a3b3b;
+
+  --op-text-strong: #e8f4ee;
+  --op-text: #c3d3cd;
+  --op-text-muted: #8fa3a0;
+
+  --op-accent: #63e6a6;       /* 主色：健康/选中 */
+  --op-warn: #e5c07b;         /* 警告 */
+  --op-danger: #ef6464;       /* 严重/错误 */
+  --op-info: #5b9dd9;         /* 信息 */
+
+  --op-font-ui: "IBM Plex Sans", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  --op-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* 主区宽度跟随 Sidebar：折叠时自动收窄，180ms 平滑过渡，无横向溢出 */
+.op-main {
+  margin-left: var(--op-sidebar-w);
+  min-width: 0;
+  min-height: 100vh;
+  transition: margin-left var(--op-transition) ease;
+  display: flex;
+  flex-direction: column;
+}
+.op-main--collapsed {
+  margin-left: var(--op-sidebar-w-collapsed);
+}
+.op-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+/* 防止旧控制台的宽内容撑破主区 */
+.op-content > * {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
+@media (max-width: 900px) {
+  .op-main,
+  .op-main--collapsed {
+    margin-left: var(--op-sidebar-w-collapsed);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .op-main { transition: none; }
+}

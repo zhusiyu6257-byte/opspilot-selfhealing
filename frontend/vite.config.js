@@ -24,6 +24,7 @@ export default defineConfig(({ mode }) => {
     (useHttps ? 'https://127.0.0.1:8000' : 'http://127.0.0.1:8000')
 
   return {
+    base: env.VITE_BASE_PATH || '/',
     plugins: [vue()],
     resolve: {
       alias: {
