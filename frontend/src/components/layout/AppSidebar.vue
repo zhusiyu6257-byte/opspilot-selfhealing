@@ -16,16 +16,19 @@ import {
 } from '@element-plus/icons-vue'
 import { useLayoutStore } from '@/stores/layout.js'
 import { navGroups, footerNav } from '@/config/nav.js'
-import { STATIC_READONLY } from '@/config/runtime.js'
+import { READONLY_LIVE, STATIC_READONLY } from '@/config/runtime.js'
 
 const route = useRoute()
 const layout = useLayoutStore()
+const hideLegacyNav = computed(() => STATIC_READONLY || READONLY_LIVE)
 const visibleFooterNav = computed(() =>
-  STATIC_READONLY ? footerNav.filter((item) => item.id !== 'legacy') : footerNav,
+  hideLegacyNav.value ? footerNav.filter((item) => item.id !== 'legacy') : footerNav,
 )
-const brandSubtitle = computed(() =>
-  STATIC_READONLY ? 'Static Readonly Preview' : 'Self-Healing Console',
-)
+const brandSubtitle = computed(() => {
+  if (STATIC_READONLY) return 'Static Readonly Preview'
+  if (READONLY_LIVE) return 'Readonly Live'
+  return 'Self-Healing Console'
+})
 
 const iconMap = {
   Odometer,
@@ -53,11 +56,16 @@ function isActive(path) {
   return route.path === path || route.path.startsWith(`${path}/`)
 }
 
+function itemAvailability(item) {
+  if (READONLY_LIVE && item.id === 'overview') return 'live'
+  return item.availability
+}
+
 function itemClass(item) {
   return {
     'op-nav__item': true,
     'op-nav__item--active': isActive(item.path),
-    'op-nav__item--planned': item.availability === 'planned',
+    'op-nav__item--planned': itemAvailability(item) === 'planned',
     'op-nav__item--collapsed': layout.collapsed,
   }
 }
@@ -93,7 +101,7 @@ function itemClass(item) {
             </span>
             <span v-if="!layout.collapsed" class="op-nav__label">{{ item.name }}</span>
             <span
-              v-if="!layout.collapsed && item.availability === 'planned'"
+              v-if="!layout.collapsed && itemAvailability(item) === 'planned'"
               class="op-nav__flag"
             >规划</span>
           </router-link>

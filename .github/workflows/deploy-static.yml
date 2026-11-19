@@ -33,10 +33,12 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Build static readonly site
+      - name: Build readonly live site
         working-directory: frontend
         env:
-          VITE_STATIC_READONLY: "1"
+          VITE_STATIC_READONLY: "0"
+          VITE_READONLY_LIVE: "1"
+          VITE_READONLY_API_BASE: ${{ vars.VITE_READONLY_API_BASE || '' }}
           VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH || '/' }}
         run: npm run build
 

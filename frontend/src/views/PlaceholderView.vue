@@ -2,11 +2,19 @@
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { Box } from '@element-plus/icons-vue'
-import { STATIC_READONLY } from '@/config/runtime.js'
+import { READONLY_LIVE, STATIC_READONLY } from '@/config/runtime.js'
 
 const route = useRoute()
-const backPath = computed(() => (STATIC_READONLY ? '/preview' : '/legacy'))
-const backLabel = computed(() => (STATIC_READONLY ? '返回静态展示' : '返回旧版控制台'))
+const backPath = computed(() => {
+  if (STATIC_READONLY) return '/preview'
+  if (READONLY_LIVE) return '/overview'
+  return '/legacy'
+})
+const backLabel = computed(() => {
+  if (STATIC_READONLY) return '返回静态展示'
+  if (READONLY_LIVE) return '返回只读概览'
+  return '返回旧版控制台'
+})
 </script>
 
 <template>

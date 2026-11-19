@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, Expand, Fold } from '@element-plus/icons-vue'
 import { useLayoutStore } from '@/stores/layout.js'
 import { allNavItems, navGroups } from '@/config/nav.js'
-import { STATIC_READONLY } from '@/config/runtime.js'
+import { READONLY_LIVE, STATIC_READONLY } from '@/config/runtime.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -27,11 +27,19 @@ const groupTitle = computed(() => {
   )
   return group?.title || ''
 })
-const isPlanned = computed(() => currentItem.value?.availability === 'planned')
+const isPlanned = computed(
+  () => !route.meta.readonlyLive && currentItem.value?.availability === 'planned',
+)
 const toggleIcon = computed(() => (layout.collapsed ? Expand : Fold))
 const toggleLabel = computed(() => (layout.collapsed ? '展开侧边栏' : '收起侧边栏'))
-const stageLabel = computed(() => (STATIC_READONLY ? 'D0 · 静态只读' : 'S1 · 布局骨架'))
-const showLegacyButton = computed(() => !STATIC_READONLY && route.path !== '/legacy')
+const stageLabel = computed(() => {
+  if (STATIC_READONLY) return 'D0 · 静态只读'
+  if (READONLY_LIVE) return 'D1 · 只读实时'
+  return 'S1 · 布局骨架'
+})
+const showLegacyButton = computed(
+  () => !STATIC_READONLY && !READONLY_LIVE && route.path !== '/legacy',
+)
 </script>
 
 <template>
